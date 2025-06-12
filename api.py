@@ -1,7 +1,7 @@
 import os
 import json
 import numpy as np
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 import tiktoken
 from pinecone import Pinecone
+import concurrent.futures
 
 # Load environment variables
 load_dotenv()
@@ -22,13 +23,12 @@ genai.configure(api_key=GEMINI_API_KEY)
 pc = Pinecone(api_key=PINECONE_API_KEY)
 index = pc.Index(PINECONE_INDEX)
 
-# Tokenizer (not strictly used here but good to keep)
+# Tokenizer (not strictly used but keeping)
 encoding = tiktoken.get_encoding("cl100k_base")
 
-# FastAPI app initialization
 app = FastAPI()
 
-# Allow CORS (important for evaluator browser testing)
+# Enable CORS (important for evaluator testing)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -37,7 +37,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Request schema
 class QueryRequest(BaseModel):
     question: str
     image: Optional[str] = None
@@ -67,7 +66,7 @@ def retrieve_top_k(query_embedding, k=5):
         })
     return results
 
-# Gemini Flash answering function
+# Gemini Answer function
 def generate_answer(question, retrieved_chunks):
     context = "\n\n".join([chunk['content'] for chunk in retrieved_chunks])
     prompt = f"""
@@ -84,7 +83,7 @@ Answer:
     response = model.generate_content(prompt)
     return response.text.strip()
 
-# Generate snippet for each link
+# Snippet generation function (not async but parallelizable)
 def generate_snippet(question, chunk_text):
     snippet_prompt = f"""
 You are a helpful assistant. Given the student's question: '{question}', summarize in one sentence why the following content is relevant to answer it:
@@ -97,16 +96,23 @@ Summary:
     response = model.generate_content(snippet_prompt)
     return response.text.strip()
 
-# Extract links with snippets
-def extract_links(retrieved_chunks, question):
+# Fully parallel snippet generation
+def extract_links_parallel(retrieved_chunks, question):
     links = []
-    for chunk in retrieved_chunks:
-        snippet = generate_snippet(question, chunk["content"])
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [
+            executor.submit(generate_snippet, question, chunk["content"])
+            for chunk in retrieved_chunks
+        ]
+        snippets = [future.result() for future in futures]
+
+    for chunk, snippet in zip(retrieved_chunks, snippets):
         links.append({"url": chunk["url"], "text": snippet})
+    
     return links
 
-# ✅ ✅ ✅ THIS IS YOUR POST /api/ ENDPOINT
-
+# ✅ POST endpoint as required
 @app.post("/api")
 @app.post("/api/")
 async def rag_api(req: QueryRequest):
@@ -114,13 +120,13 @@ async def rag_api(req: QueryRequest):
         query_emb = embed_query(req.question)
         top_chunks = retrieve_top_k(query_emb, k=5)
         answer = generate_answer(req.question, top_chunks)
-        links = extract_links(top_chunks, req.question)
+        links = extract_links_parallel(top_chunks, req.question)
         return {"answer": answer, "links": links}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# (Optional) Health check GET endpoint (safe to include)
+# Optional health check
 @app.get("/api")
 @app.get("/api/")
 async def health_check():
-    return {"status": "API running. Use POST to submit your question."}
+    return {"status": "API running. Please use POST request."}
