@@ -51,7 +51,7 @@ def embed_query(text):
     return np.array(res["embedding"], dtype=np.float32).tolist()
 
 # Pinecone search function
-def retrieve_top_k(query_embedding, k=3):
+def retrieve_top_k(query_embedding, k=2):
     response = index.query(
         vector=query_embedding,
         top_k=k,
