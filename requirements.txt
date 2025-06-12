@@ -8,4 +8,4 @@ numpy
 tqdm
 markdown
 pydantic
-pinecone-client
+pinecone-client>=3.0.0
