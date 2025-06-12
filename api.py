@@ -123,6 +123,7 @@ async def rag_api(req: QueryRequest):
         links = extract_links_parallel(top_chunks, req.question)
         return {"answer": answer, "links": links}
     except Exception as e:
+        traceback.print_exc() 
         raise HTTPException(status_code=500, detail=str(e))
 
 # Optional health check
