@@ -1,32 +1,34 @@
 import os
 import json
-import base64
 import numpy as np
-from typing import List, Optional
+from typing import Optional
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import google.generativeai as genai
 import tiktoken
+from pinecone import Pinecone
 
 # Load environment variables
 load_dotenv()
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT")
+PINECONE_INDEX = os.getenv("PINECONE_INDEX")
+
 genai.configure(api_key=GEMINI_API_KEY)
+pc = Pinecone(api_key=PINECONE_API_KEY)
+index = pc.Index(PINECONE_INDEX)
 
-# Load FAISS index and metadata
-embeddings = np.load("embeddings.npy")
-metadata = json.load(open("metadata.json", "r", encoding="utf-8"))
-index = faiss.read_index("faiss.index")
-
-# Tokenizer for chunking prompt if needed
+# Tokenizer (not strictly used here but good to keep)
 encoding = tiktoken.get_encoding("cl100k_base")
 
-# FastAPI initialization
+# FastAPI app initialization
 app = FastAPI()
 
-# Enable CORS for all origins (can be restricted in production)
+# Allow CORS (important for evaluator browser testing)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,33 +37,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Pydantic model for request
+# Request schema
 class QueryRequest(BaseModel):
     question: str
-    image: Optional[str] = None  # image in base64 (not used right now)
+    image: Optional[str] = None
 
-# Helper: Embed query using Gemini
-
+# Gemini Embedding function
 def embed_query(text):
     res = genai.embed_content(
         model="models/embedding-001",
         content=text,
         task_type="RETRIEVAL_QUERY"
     )
-    return np.array(res["embedding"], dtype=np.float32)
+    return np.array(res["embedding"], dtype=np.float32).tolist()
 
-# Helper: Similarity Search
-
+# Pinecone search function
 def retrieve_top_k(query_embedding, k=5):
-    query_embedding = query_embedding.reshape(1, -1).astype("float32")
-    D, I = index.search(query_embedding, k)
+    response = index.query(
+        vector=query_embedding,
+        top_k=k,
+        include_metadata=True
+    )
     results = []
-    for idx in I[0]:
-        results.append(metadata[idx])
+    for match in response["matches"]:
+        meta = match["metadata"]
+        results.append({
+            "url": meta["url"],
+            "content": meta["content"]
+        })
     return results
 
-# Helper: Generate answer with Gemini Flash
-
+# Gemini Flash answering function
 def generate_answer(question, retrieved_chunks):
     context = "\n\n".join([chunk['content'] for chunk in retrieved_chunks])
     prompt = f"""
@@ -74,13 +80,11 @@ Use the following context to answer the student's question as accurately as poss
 Question: {question}
 Answer:
 """
-
     model = genai.GenerativeModel("models/gemini-1.5-flash-latest")
     response = model.generate_content(prompt)
     return response.text.strip()
 
-# Helper: Generate snippet for each link using Gemini Flash
-
+# Generate snippet for each link
 def generate_snippet(question, chunk_text):
     snippet_prompt = f"""
 You are a helpful assistant. Given the student's question: '{question}', summarize in one sentence why the following content is relevant to answer it:
@@ -93,19 +97,16 @@ Summary:
     response = model.generate_content(snippet_prompt)
     return response.text.strip()
 
-# Helper: Extract links with smarter snippets
-
+# Extract links with snippets
 def extract_links(retrieved_chunks, question):
     links = []
     for chunk in retrieved_chunks:
         snippet = generate_snippet(question, chunk["content"])
-        links.append({
-            "url": chunk["url"],
-            "text": snippet
-        })
+        links.append({"url": chunk["url"], "text": snippet})
     return links
 
-# API Endpoint for both /api and /api/
+# ✅ ✅ ✅ THIS IS YOUR POST /api/ ENDPOINT
+
 @app.post("/api")
 @app.post("/api/")
 async def rag_api(req: QueryRequest):
@@ -114,12 +115,12 @@ async def rag_api(req: QueryRequest):
         top_chunks = retrieve_top_k(query_emb, k=5)
         answer = generate_answer(req.question, top_chunks)
         links = extract_links(top_chunks, req.question)
-
-        response = {
-            "answer": answer,
-            "links": links
-        }
-        return response
-
+        return {"answer": answer, "links": links}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# (Optional) Health check GET endpoint (safe to include)
+@app.get("/api")
+@app.get("/api/")
+async def health_check():
+    return {"status": "API running. Use POST to submit your question."}
