@@ -1,7 +1,6 @@
 fastapi
 uvicorn
 google-generativeai
-faiss-cpu
 tiktoken
 python-dotenv
 numpy
