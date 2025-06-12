@@ -6,6 +6,7 @@ import faiss
 from typing import List, Optional
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import google.generativeai as genai
 import tiktoken
@@ -25,6 +26,15 @@ encoding = tiktoken.get_encoding("cl100k_base")
 
 # FastAPI initialization
 app = FastAPI()
+
+# Enable CORS for all origins (can be restricted in production)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Pydantic model for request
 class QueryRequest(BaseModel):
@@ -96,8 +106,8 @@ def extract_links(retrieved_chunks, question):
         })
     return links
 
-# API Endpoint
-
+# API Endpoint for both /api and /api/
+@app.post("/api")
 @app.post("/api/")
 async def rag_api(req: QueryRequest):
     try:
