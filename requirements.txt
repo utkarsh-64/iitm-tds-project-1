@@ -6,3 +6,4 @@ tiktoken
 pinecone
 openai
 tqdm
+numpy
