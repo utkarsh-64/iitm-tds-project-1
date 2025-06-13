@@ -1,10 +1,8 @@
 fastapi
 uvicorn
-google-generativeai
-tiktoken
 python-dotenv
-numpy
-tqdm
-markdown
 pydantic
+tiktoken
 pinecone
+openai
+tqdm
