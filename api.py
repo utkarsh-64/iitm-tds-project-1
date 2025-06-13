@@ -103,7 +103,7 @@ Answer:
 # Generate snippet
 def generate_snippet(question, chunk_text):
     snippet_prompt = f"""
-You are a helpful assistant. Given the student's question: '{question}', summarize in one sentence why the following content is relevant to answer it, and if you don't have answer start your solution with "I don't know":
+You are a helpful assistant. Given the student's question: '{question}', summarize in one sentence why the following content is relevant to answer it, and if you don't have answer start your solution with "don't know":
 
 Content: {chunk_text}
 
