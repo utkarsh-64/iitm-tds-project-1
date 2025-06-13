@@ -85,6 +85,7 @@ def generate_answer(question, retrieved_chunks):
 You are a virtual teaching assistant.
 
 Use the following context to answer the student's question as accurately as possible:
+- If the context does not contain information to confidently answer, say "I don't know".
 
 {context}
 
